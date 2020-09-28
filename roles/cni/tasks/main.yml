@@ -1,0 +1,34 @@
+---
+
+- name: Ensure network directory is present
+  file:
+    path: /etc/kubernetes/network
+    state: directory
+
+- name: "Copy flannel yml file"
+  template:
+    src: "flannel.yml.j2"
+    dest: "/etc/kubernetes/network/flannel.yml"
+
+- name: "Copy flannel RBAC yml file"
+  template:
+    src: "flannel-rbac.yml.j2"
+    dest: "/etc/kubernetes/network/flannel-rbac.yml"
+
+- name: "Apply flannel RBAC config"
+  command: kubectl apply -f /etc/kubernetes/network/flannel-rbac.yml
+  run_once: true
+  environment:
+    KUBECONFIG: "/etc/kubernetes/admin.conf"
+
+- name: "Apply flannel DaemonSet config"
+  command: kubectl apply -f /etc/kubernetes/network/flannel.yml
+  run_once: true
+  environment:
+    KUBECONFIG: "/etc/kubernetes/admin.conf"
+
+- name: "Wait for flannel subnet.env file presence"
+  wait_for:
+    path: /run/flannel/subnet.env
+    delay: 5
+    timeout: 600

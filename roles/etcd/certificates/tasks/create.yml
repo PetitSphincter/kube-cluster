@@ -1,0 +1,40 @@
+---
+
+- name: "Create etcd ca-config json file on {{ groups['etcd'][0] }}"
+  template:
+    src: ca-config.json.j2
+    dest: /etc/etcd/pki/ca-config.json
+    owner: root
+    group: root
+    mode: 0644
+  run_once: true
+
+- name: "Create etcd ca-csr json file on {{ groups['etcd'][0] }}"
+  template:
+    src: ca-csr.json.j2
+    dest: /etc/etcd/pki/ca-csr.json
+    owner: root
+    group: root
+    mode: 0644
+  run_once: true
+
+- name: "Generate etcd CA certificate on {{ groups['etcd'][0] }}"
+  shell: cfssl gencert -initca ca-csr.json | cfssljson -bare ca -
+  args:
+    chdir: /etc/etcd/pki
+  run_once: true
+
+- name: "Create etcd client json file on {{ groups['etcd'][0] }}"
+  template:
+    src: client.json.j2
+    dest: /etc/etcd/pki/client.json
+    owner: root
+    group: root
+    mode: 0644
+  run_once: true
+
+- name: "Generate etcd client certificate on {{ groups['etcd'][0] }}"
+  shell: cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=client client.json | cfssljson -bare client
+  args:
+    chdir: /etc/etcd/pki
+  run_once: true

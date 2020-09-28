@@ -1,0 +1,78 @@
+- name: "Check if local certificates exist"
+  command: test -f "{{ local_etcd_secrets_dir }}"/"{{ item }}"
+  with_items:
+   - ca.pem
+   - ca-config.json
+   - ca-key.pem
+   - client.pem
+   - client-key.pem
+  become: no
+  run_once: true
+  ignore_errors: true
+  delegate_to: localhost
+  register: etcd_certs_exist
+
+- name: "Trying to fetch certificates from {{ groups['etcd'][0] }}"
+  fetch:
+    src: /etc/etcd/pki/{{ item }}
+    dest: "{{ local_etcd_secrets_dir }}/{{ item }}"
+    flat: yes
+    fail_on_missing: true
+  with_items:
+   - ca.pem
+   - ca-key.pem
+   - ca-config.json
+   - client.pem
+   - client-key.pem
+  run_once: true
+  ignore_errors: true
+  when: etcd_certs_exist is failed
+  register: etcd_certs_fetched
+
+- name: "Fail if no certificate is found and generation is disabled"
+  fail:
+    msg: "Etcd certificates not found and etcd_generate_certs=false on the configuration!"
+  when: etcd_certs_fetched is failed and etcd_certs_exist is failed and (etcd_generate_certs == false or etcd_generate_certs is not defined)
+
+- name: "Generate etcd certificates on {{ groups['etcd'][0] }}"
+  when: etcd_certs_fetched is failed and etcd_certs_exist is failed
+  include_tasks: create.yml
+
+- name: "Fetch generated certificates from {{ groups['etcd'][0] }}"
+  fetch:
+    src: /etc/etcd/pki/{{ item }}
+    dest: "{{ local_etcd_secrets_dir }}/{{ item }}"
+    flat: yes
+    fail_on_missing: true
+  with_items:
+   - ca.pem
+   - ca-key.pem
+   - ca-config.json
+   - client.pem
+   - client-key.pem
+  run_once: true
+  when: etcd_certs_fetched is failed and etcd_certs_exist is failed
+
+- name: "Distribute certificates to all etcd nodes"
+  copy:
+    dest: /etc/etcd/pki/{{ item.file }}
+    src: "{{ local_etcd_secrets_dir }}/{{ item.file }}"
+    owner: "root"
+    group: "root"
+    mode: "{{ item.mode }}"
+  with_items:
+  - file: ca.pem
+    mode: "0644"
+  - file: ca-config.json
+    mode: "0644"
+  - file: ca-key.pem
+    mode: "0600"
+  - file: client.pem
+    mode: "0644"
+  - file: client-key.pem
+    mode: "0600"
+
+- include_tasks: update_ca_trust.yml
+
+- name: "Generate peeer certificates"
+  include_tasks: peer_certs.yml

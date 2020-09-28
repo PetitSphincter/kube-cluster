@@ -1,0 +1,38 @@
+---
+
+- name: "Set ectd cluster addresses"
+  set_fact:
+    etcd_access_url: "https://{{ ip }}:2379"
+    etcd_peer_url: "https://{{ ip }}:2380"
+    etcd_access_urls: |-
+      {% for item in groups['etcd'] -%}
+        https://{{ hostvars[item]['ip'] }}:2379{% if not loop.last %},{% endif %}
+      {%- endfor %}
+
+- include_tasks: install.yml
+
+- name: Join member(s) to etcd cluster one at a time
+  include_tasks: join_members.yml
+  when: etcd_cluster_is_healthy.rc == 0
+  vars:
+    target_node: "{{ item }}"
+  loop_control:
+    pause: 10
+  with_items: "{{ groups['etcd'] }}"
+
+- name: Create cluster
+  include_tasks: create_cluster.yml
+
+- name: Ensure all members are in etcd cluster
+  shell: "etcdctl --no-sync member list | grep -q {{ etcd_access_url }}"
+  register: etcd_member_in_cluster
+  changed_when: false
+  check_mode: no
+  until: etcd_member_in_cluster.rc == 0
+  retries: 4
+  environment:
+    ETCDCTL_ENDPOINTS: "{{ etcd_access_url }}"
+    ETCDCTL_CERT_FILE: "/etc/etcd/pki/client.pem"
+    ETCDCTL_KEY_FILE: "/etc/etcd/pki/client-key.pem"
+
+- include_tasks: refresh_configuration.yml
